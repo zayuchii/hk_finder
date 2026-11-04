@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Scholarship Status Lookup</title>
+  <!-- Crypto-JS Library for browser-side decryption -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      max-width: 500px;
+      margin: 50px auto;
+      padding: 20px;
+      background: #f8fafc;
+      color: #0f172a;
+    }
+    .card {
+      background: #ffffff;
+      padding: 24px;
+      border-radius: 12px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    }
+    .input-group {
+      margin-bottom: 12px;
+    }
+    label {
+      display: block;
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 4px;
+      color: #475569;
+    }
+    input {
+      width: 100%;
+      padding: 12px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      font-size: 16px;
+      box-sizing: border-box;
+    }
+    button {
+      width: 100%;
+      padding: 12px;
+      background: #2563eb;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 8px;
+    }
+    button:hover { background: #1d4ed8; }
+    #result {
+      margin-top: 20px;
+      padding: 16px;
+      border-radius: 8px;
+      display: none;
+      white-space: pre-line;
+    }
+    .status-ok { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
+    .status-lacking { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+    .status-notFound { background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <h2>HK Scholarship Status Lookup</h2>
+  
+  <div class="input-group">
+    <label for="secretKey">Secret Passcode / Key</label>
+    <input type="password" id="secretKey" placeholder="Enter organization secret key...">
+  </div>
+
+  <div class="input-group">
+    <label for="studentId">Student ID</label>
+    <input type="text" id="studentId" placeholder="Enter Student ID (e.g., 03-01-2526-049543)">
+  </div>
+
+  <button onclick="searchEncryptedData()">Check Status</button>
+
+  <div id="result"></div>
+</div>
+
+<script>
+  async function searchEncryptedData() {
+    const SECRET_KEY = document.getElementById('secretKey').value.trim();
+    const inputId = document.getElementById('studentId').value.trim();
+    const resultDiv = document.getElementById('result');
+
+    if (!SECRET_KEY) {
+      resultDiv.style.display = 'block';
+      resultDiv.className = 'status-notFound';
+      resultDiv.innerHTML = 'Please enter the secret key.';
+      return;
+    }
+
+    if (!inputId) return;
+
+    resultDiv.style.display = 'block';
+    resultDiv.className = 'status-notFound';
+    resultDiv.innerHTML = 'Decrypting database and searching...';
+
+    try {
+      // Fetch the jumbled/encrypted json file instead of raw excel
+      const response = await fetch('jumbled.json');
+      const json = await response.json();
+
+      // Decrypt using user-provided key
+      const bytes = CryptoJS.AES.decrypt(json.data, SECRET_KEY);
+      const decryptedString = bytes.toString(CryptoJS.enc.Utf8);
+      
+      if (!decryptedString) {
+        throw new Error('Decryption failed.');
+      }
+
+      const masterRows = JSON.parse(decryptedString);
+      let foundRecord = null;
+
+      for (const item of masterRows) {
+        const sheetName = item.sheet;
+        const row = item.row;
+
+        const matchIndex = row.findIndex(cell => cell && String(cell).trim() === inputId);
+        
+        if (matchIndex !== -1) {
+          const detailsText = row.filter((cell, idx) => idx !== matchIndex && cell !== "").join(" | ");
+          
+          foundRecord = {
+            sheet: sheetName,
+            id: inputId,
+            details: detailsText || "No additional remarks provided."
+          };
+          break;
+        }
+      }
+
+      if (foundRecord) {
+        const isOk = foundRecord.sheet.toLowerCase().includes('ok') || foundRecord.details.toLowerCase().includes('ok');
+
+        const detailsArr = foundRecord.details.split("|");
+        const first_check = detailsArr[0] ? detailsArr[0].trim() : 'N/A: Error retrieving data';
+        const remarks = detailsArr[1] ? detailsArr[1].trim() : 'N/A: Error retrieving data';
+        const second_check = detailsArr[2] ? detailsArr[2].trim() : 'N/A: Error retrieving data';
+
+        resultDiv.className = isOk ? 'status-ok' : 'status-lacking';
+        resultDiv.innerHTML = `<strong>Sheet / Section:</strong> ${foundRecord.sheet}\n` +
+                              `<strong>Student ID:</strong> ${foundRecord.id}\n` +
+                              `<strong>1st Checking:</strong> ${first_check}\n` +
+                              `<strong>Remarks:</strong> ${remarks}\n` +
+                              `<strong>2nd Checking:</strong> ${second_check}`;
+      } else {
+        resultDiv.className = 'status-notFound';
+        resultDiv.innerHTML = `No records found for Student ID: <strong>${inputId}</strong>`;
+      }
+
+    } catch (err) {
+      console.error(err);
+      resultDiv.className = 'status-notFound';
+      resultDiv.innerHTML = 'Incorrect secret key or error reading jumbled.json.';
+    }
+  }
+</script>
+
+</body>
+</html>
